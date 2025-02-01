@@ -1,0 +1,203 @@
+% filepath: matlab/build_serial_mex.m
+function build_serial_mex(varargin)
+% Parse optional inputs with validation
+p = inputParser;
+addParameter(p, 'libusb_include', '', @ischar);
+addParameter(p, 'libusb_lib', '', @ischar);
+addParameter(p, 'debug', false, @islogical);
+addParameter(p, 'force_rebuild', false, @islogical);
+parse(p, varargin{:});
+
+% Get directory paths
+curr_dir = pwd;
+libusb_root = fileparts(curr_dir);
+
+% Create release directory
+release_dir = fullfile(curr_dir, 'release');
+if ~exist(release_dir, 'dir')
+	mkdir(release_dir);
+end
+
+% Validate and set include paths
+matlab_include = fullfile(matlabroot, 'extern', 'include');
+if ~exist(matlab_include, 'dir')
+	error('MATLAB include directory not found: %s', matlab_include);
+end
+
+% Set platform-specific paths and checks
+if ispc
+	[include_path, lib_path] = get_windows_paths(p.Results, curr_dir, libusb_root);
+	lib_name = 'libusb-1.0';
+	check_windows_dependencies(include_path, lib_path);
+else
+	[include_path, lib_path] = get_unix_paths(p.Results, curr_dir, libusb_root);
+	lib_name = 'usb-1.0';
+	check_unix_dependencies(include_path, lib_path);
+end
+
+% Build command construction
+cmd = construct_build_command(p.Results.debug, include_path, lib_path, ...
+	lib_name, release_dir, matlab_include);
+
+% Execute build
+try
+	mex(strjoin(cmd, ' '));
+	fprintf('Successfully built MEX file in release directory\n');
+catch ME
+	error('MEX build failed: %s', ME.message);
+end
+end
+
+function [include_path, lib_path] = get_windows_paths(params, curr_dir, libusb_root)
+% Check local paths first
+if isempty(params.libusb_include)
+	include_candidates = {
+		fullfile(curr_dir, 'include'),
+		fullfile(libusb_root, 'include'),
+		'C:\libusb\include'
+		};
+	include_path = find_valid_path(include_candidates);
+else
+	include_path = validate_path(params.libusb_include);
+end
+
+if isempty(params.libusb_lib)
+	lib_candidates = {
+		fullfile(curr_dir, 'lib'),
+		fullfile(libusb_root, 'MS64'),
+		'C:\libusb\lib'
+		};
+	lib_path = find_valid_path(lib_candidates);
+else
+	lib_path = validate_path(params.libusb_lib);
+end
+end
+
+function [include_path, lib_path] = get_unix_paths(params, curr_dir, libusb_root)
+if isempty(params.libusb_include)
+	include_candidates = {
+		fullfile(curr_dir, 'include'),
+		fullfile(libusb_root, 'include'),
+		'/usr/include',
+		'/usr/local/include'
+		};
+	include_path = find_valid_path(include_candidates);
+else
+	include_path = validate_path(params.libusb_include);
+end
+
+if isempty(params.libusb_lib)
+	lib_candidates = {
+		fullfile(curr_dir, 'lib'),
+		fullfile(libusb_root, 'lib'),
+		'/usr/lib',
+		'/usr/local/lib'
+		};
+	lib_path = find_valid_path(lib_candidates);
+else
+	lib_path = validate_path(params.libusb_lib);
+end
+end
+
+function path = find_valid_path(candidates)
+for i = 1:length(candidates)
+	if exist(candidates{i}, 'dir')
+		path = candidates{i};
+		return;
+	end
+end
+error('No valid path found among candidates: %s', strjoin(candidates, ', '));
+end
+
+function path = validate_path(path)
+if ~exist(path, 'dir')
+	error('Directory not found: %s', path);
+end
+end
+
+function check_windows_dependencies(include_path, lib_path)
+% Check for required files
+required_files = {
+	fullfile(include_path, 'libusb-1.0', 'libusb.h'),
+	fullfile(lib_path, 'libusb-1.0.lib'),
+	fullfile(lib_path, 'libusb-1.0.dll')
+	};
+
+for i = 1:length(required_files)
+	if ~exist(required_files{i}, 'file')
+		error('Required file not found: %s', required_files{i});
+	end
+end
+end
+
+function check_unix_dependencies(include_path, lib_path)
+required_files = {
+	fullfile(include_path, 'libusb-1.0', 'libusb.h'),
+	fullfile(lib_path, 'libusb-1.0.so')
+	};
+
+if ismac
+	required_files{2} = fullfile(lib_path, 'libusb-1.0.dylib');
+end
+
+for i = 1:length(required_files)
+	if ~exist(required_files{i}, 'file')
+		error('Required file not found: %s', required_files{i});
+	end
+end
+end
+
+function cmd = construct_build_command(debug, include_path, lib_path, lib_name, ...
+	release_dir, matlab_include)
+
+% Initialize command array
+cmd = {'COMPFLAGS="$COMPFLAGS'};
+
+% Add C++ standard and exception handling
+if ispc
+	cmd{end+1} = '/EHsc /std:c++17';
+	if debug
+		cmd{end+1} = '/Z7 /Od /MDd';
+	else
+		cmd{end+1} = '/O2 /MD';
+	end
+else
+	cmd{end+1} = '-std=c++17';
+	if debug
+		cmd{end+1} = '-g -O0';
+	else
+		cmd{end+1} = '-O2';
+	end
+end
+
+% Close compiler flags
+cmd{end+1} = '"';
+
+% Add include paths with validation
+validatepath = @(p) exist(p, 'dir') || error('Path not found: %s', p);
+validatepath(include_path);
+validatepath(matlab_include);
+validatepath(lib_path);
+
+% Add includes
+cmd{end+1} = ['-I"' include_path '"'];
+cmd{end+1} = ['-I"' matlab_include '"'];
+
+% Add source files
+cmd{end+1} = fullfile(pwd, 'serial_mex.cpp');
+cmd{end+1} = fullfile(pwd, 'serial_comm.c');
+
+% Add library paths and dependencies
+cmd{end+1} = ['-L"' lib_path '"'];
+cmd{end+1} = ['-l' lib_name];
+
+% Set output directory
+validatepath(release_dir);
+cmd{end+1} = ['-outdir "' release_dir '"'];
+
+% Add Windows-specific runtime library path
+if ispc
+	cmd{end+1} = ['-L"' fullfile(matlabroot, 'extern', 'lib', ...
+		computer('arch'), 'microsoft') '"'];
+end
+end
