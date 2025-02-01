@@ -1,30 +1,35 @@
-% filepath: matlab/build_serial_mex.m
 function build_serial_mex(varargin)
-% Parse optional inputs with validation
+% Parse inputs
 p = inputParser;
 addParameter(p, 'libusb_include', '', @ischar);
 addParameter(p, 'libusb_lib', '', @ischar);
 addParameter(p, 'debug', false, @islogical);
 addParameter(p, 'force_rebuild', false, @islogical);
+addParameter(p, 'clean', false, @islogical);
 parse(p, varargin{:});
 
-% Get directory paths
+% Get directories
 curr_dir = pwd;
 libusb_root = fileparts(curr_dir);
+release_dir = fullfile(curr_dir, 'release');
+
+% Clean build if requested
+if p.Results.clean && exist(release_dir, 'dir')
+	rmdir(release_dir, 's');
+end
 
 % Create release directory
-release_dir = fullfile(curr_dir, 'release');
 if ~exist(release_dir, 'dir')
 	mkdir(release_dir);
 end
 
-% Validate and set include paths
+% Validate MATLAB paths
 matlab_include = fullfile(matlabroot, 'extern', 'include');
 if ~exist(matlab_include, 'dir')
 	error('MATLAB include directory not found: %s', matlab_include);
 end
 
-% Set platform-specific paths and checks
+% Set platform-specific paths
 if ispc
 	[include_path, lib_path] = get_windows_paths(p.Results, curr_dir, libusb_root);
 	lib_name = 'libusb-1.0';
@@ -35,41 +40,59 @@ else
 	check_unix_dependencies(include_path, lib_path);
 end
 
-% Build command construction
+% Construct and execute build command
 cmd = construct_build_command(p.Results.debug, include_path, lib_path, ...
 	lib_name, release_dir, matlab_include);
-
-% Execute build
 try
-	mex(strjoin(cmd, ' '));
-	fprintf('Successfully built MEX file in release directory\n');
+	mex(cmd{:});
+	verify_build(release_dir);
 catch ME
-	error('MEX build failed: %s', ME.message);
+	cleanup_on_error(release_dir);
+	rethrow(ME);
 end
 end
 
 function [include_path, lib_path] = get_windows_paths(params, curr_dir, libusb_root)
-% Check local paths first
-if isempty(params.libusb_include)
+if ~isempty(params.libusb_include)
+	include_path = params.libusb_include;
+else
 	include_candidates = {
 		fullfile(curr_dir, 'include'),
 		fullfile(libusb_root, 'include'),
 		'C:\libusb\include'
 		};
 	include_path = find_valid_path(include_candidates);
-else
-	include_path = validate_path(params.libusb_include);
 end
 
-if isempty(params.libusb_lib)
+if ~isempty(params.libusb_lib)
+	lib_path = params.libusb_lib;
+else
 	lib_candidates = {
 		fullfile(curr_dir, 'lib'),
 		fullfile(libusb_root, 'MS64'),
 		'C:\libusb\lib'
 		};
 	lib_path = find_valid_path(lib_candidates);
+end
+end
+
+
+function verify_build(release_dir)
+mex_file = fullfile(release_dir, 'serial_mex');
+if ispc
+	mex_file = [mex_file '.' mexext];
 else
-	lib_path = validate_path(params.libusb_lib);
+	mex_file = [mex_file '.' mexext];
+end
+
+if ~exist(mex_file, 'file')
+	error('Build failed: MEX file not created');
+end
+end
+
+function cleanup_on_error(release_dir)
+if exist(release_dir, 'dir')
+	rmdir(release_dir, 's');
 end
 end
 
