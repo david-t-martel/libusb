@@ -21,15 +21,38 @@ try
 	% Open first STM32 device found
 	dev.open(hex2dec('0483'), hex2dec('5740'))
 
+	% Configure device before use
+	dev.setConfig('timeout_ms', 1000);
+	dev.setConfig('endpoint_in', hex2dec('81'));
+	dev.setConfig('endpoint_out', hex2dec('01'));
+
+	% Add proper device verification
+	if ~dev.isOpen()
+		error('Failed to open device');
+	end
+
 	% Send data
-	dev.write(uint8([1 2 3 4]))
+	bytes_written = dev.write(uint8([1 2 3 4]));
+	if bytes_written ~= 4
+		warning('Incomplete write operation');
+	end
 
 	% Read response
-	response = dev.read(64)
+	response = dev.read(64);
+	if isempty(response)
+		warning('No data received within timeout period');
+	end
 
 catch ME
-	% Error handling
-	fprintf('Error: %s\n', ME.message);
+	% Add specific error handling
+	switch ME.identifier
+		case 'MATLAB:error:device_disconnected'
+			fprintf('Device disconnected unexpectedly\n');
+		case 'MATLAB:error:timeout'
+			fprintf('Operation timed out\n');
+		otherwise
+			fprintf('Error: %s\n', ME.message);
+	end
 	dev.close();
 	rethrow(ME);
 end

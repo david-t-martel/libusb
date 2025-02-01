@@ -4,6 +4,10 @@ classdef SerialDevice < handle % was serialDevice
 		Config = struct('timeout_ms', 1000, ...
 			'buffer_size', 4096, ...
 			'auto_reconnect', true)
+		% Add connection state tracking
+		LastError = struct('code', 0, 'message', '')
+		RetryCount = 0
+		MaxRetries = 3
 	end
 
 	methods
@@ -29,14 +33,14 @@ classdef SerialDevice < handle % was serialDevice
 
 		function write(obj, data)
 			validateattributes(data, {'uint8'}, {'vector'});
-			if ~obj.IsOpen
+			if ~obj.verifyConnection()
 				error('Device not open');
 			end
 			serial_mex('write', data);
 		end
 
 		function data = read(obj, bytes)
-			if ~obj.IsOpen
+			if ~obj.verifyConnection()
 				error('Device not open');
 			end
 			try
@@ -73,5 +77,45 @@ classdef SerialDevice < handle % was serialDevice
 				serial_mex('setConfig', name, value);
 			end
 		end
+
+		function flush(obj)
+			if ~obj.verifyConnection()
+				error('Device not open');
+			end
+			serial_mex('flush');
+		end
+
+		function status = isOpen(obj)
+			status = obj.IsOpen;
+		end
+
+		% Add connection verification
+		function verified = verifyConnection(obj)
+			if ~obj.IsOpen
+				verified = false;
+			else
+				try
+					% Send test message
+					serial_mex('ping');
+					verified = true;
+				catch
+					verified = false;
+				end
+			end
+
+			% Add automatic reconnection
+			function success = tryReconnect(obj)
+				if ~obj.Config.auto_reconnect || obj.RetryCount >= obj.MaxRetries
+					success = false;
+				end
+				try
+					obj.close();
+					obj.open(obj.LastVid, obj.LastPid);
+					obj.RetryCount = obj.RetryCount + 1;
+					success = true;
+				catch
+					success = false;
+				end
+			end
+		end
 	end
-end

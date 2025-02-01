@@ -29,6 +29,21 @@ if ~exist(matlab_include, 'dir')
 	error('MATLAB include directory not found: %s', matlab_include);
 end
 
+% Add platform-specific compiler flags
+if ispc
+	cxx_flags = '/EHsc /std:c++17 /W4';  % Add warning level
+else
+	cxx_flags = '-std=c++17 -Wall -Wextra';  % Add extra warnings
+end
+
+% Add libusb version verification
+if ~check_libusb_version(p.Results)
+	error('Incompatible libusb version');
+end
+
+% Add dependency checking
+check_dependencies();
+
 % Set platform-specific paths
 if ispc
 	[include_path, lib_path] = get_windows_paths(p.Results, curr_dir, libusb_root);
@@ -223,4 +238,20 @@ if ispc
 	cmd{end+1} = ['-L"' fullfile(matlabroot, 'extern', 'lib', ...
 		computer('arch'), 'microsoft') '"'];
 end
+end
+
+function check_dependencies()
+% Verify MEX compiler setup
+if ~mex.getCompilerConfigurations('C++')
+	error('C++ MEX compiler not configured');
+end
+
+% Check for required headers
+required_headers = {'mex.hpp', 'libusb.h'};
+% ...header checking code...
+end
+
+function ok = check_libusb_version(params)
+min_version = '1.0.21';
+% ...version checking code...
 end

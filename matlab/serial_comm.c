@@ -179,3 +179,71 @@ void close_device(usb_device_info *device)
 	}
 	device->state = DEVICE_STATE_CLOSED;
 }
+
+bool set_device_config(usb_device_info *device, const serial_config_t *config)
+{
+	if (!device || !config || device->state != DEVICE_STATE_OPEN)
+	{
+		if (device)
+			device->last_error = SERIAL_ERROR_INVALID_CONFIG;
+		return false;
+	}
+	device->config = *config;
+	return true;
+}
+
+serial_error_t get_last_error(usb_device_info *device)
+{
+	if (!device)
+		return SERIAL_ERROR_NOT_FOUND;
+	return device->last_error;
+}
+
+void init_device_config(usb_device_info *device)
+{
+	device->config.timeout_ms = 1000;
+	device->config.buffer_size = 4096;
+	device->config.endpoint_in = 0x81;	// Default IN endpoint
+	device->config.endpoint_out = 0x01; // Default OUT endpoint
+}
+
+#define HANDLE_USB_ERROR(ctx, expr, code, msg)                                       \
+	do                                                                               \
+	{                                                                                \
+		if (!(expr))                                                                 \
+		{                                                                            \
+			if (ctx)                                                                 \
+			{                                                                        \
+				ctx->usb.last_error = code;                                          \
+				snprintf(ctx->error_message, sizeof(ctx->error_message), "%s", msg); \
+			}                                                                        \
+			return false;                                                            \
+		}                                                                            \
+	} while (0)
+
+device_context_t *device_init(void)
+{
+	device_context_t *ctx = calloc(1, sizeof(device_context_t));
+	if (ctx)
+	{
+		ctx->usb_config.timeout_ms = 1000;
+		ctx->usb_config.buffer_size = 4096;
+		ctx->flags = DEVICE_FLAG_AUTO_RECONNECT;
+	}
+	return ctx;
+}
+
+bool device_configure(device_context_t *ctx, const serial_config_t *config, uint32_t flags)
+{
+	HANDLE_USB_ERROR(ctx, ctx && config, SERIAL_ERROR_INVALID_CONFIG, "Invalid parameters");
+
+	ctx->usb_config = *config;
+	ctx->flags = flags;
+
+	if (ctx->flags & DEVICE_FLAG_DEBUG_LOGGING)
+	{
+		printf("Device configured: timeout=%u, buffer=%u\n",
+			   config->timeout_ms, config->buffer_size);
+	}
+	return true;
+}
