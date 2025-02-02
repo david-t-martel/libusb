@@ -2,25 +2,53 @@
 #include "mex.hpp"
 #include "mexAdapter.hpp"
 #include "serial_comm.h"
-#include <vector>
-#include <string>
 #include <memory>
+#include <string>
+#include <vector>
 #include <stdexcept>
+#include "MatlabDataArray.hpp"
 
 class MexFunction : public matlab::mex::Function
 {
 private:
-	std::unique_ptr<device_context_t, void (*)(device_context_t *)> device;
 	matlab::data::ArrayFactory factory;
 
-	// Simplified configuration handling
+	// Fix unique_ptr deleter
+	struct DeviceDeleter
+	{
+		void operator()(device_context_t *dev)
+		{
+			if (dev)
+				device_free(dev);
+		}
+	};
+	std::unique_ptr<device_context_t, DeviceDeleter> device;
+
+	// Fix circular buffer declaration
+	std::vector<uint8_t> receive_buffer;
+	size_t buffer_position{0};
+
+	// Fix config handling
 	void updateConfig(const matlab::data::StructArray &config)
 	{
-		device_config_t new_config = {};
-		// Parse MATLAB struct directly into device config
-		if (device)
+		if (!device)
+			return;
+
+		using namespace matlab::data;
+		try
 		{
-			device_configure(device.get(), &new_config);
+			TypedArray<double> timeout = config[0]["timeout_ms"];
+			TypedArray<bool> reconnect = config[0]["auto_reconnect"];
+
+			serial_config_t usb_config{};
+			usb_config.timeout_ms = static_cast<uint32_t>(timeout[0]);
+			uint32_t flags = reconnect[0] ? DEVICE_FLAG_AUTO_RECONNECT : 0;
+
+			device_configure_context(device.get(), &usb_config, flags);
+		}
+		catch (const InvalidFieldException &)
+		{
+			throwMatlabError("MATLAB:error:config", "Missing required fields");
 		}
 	}
 
@@ -56,9 +84,9 @@ private:
 
 	void throwMatlabError(const std::string &id, const std::string &msg)
 	{
-		matlab::data::ArrayFactory factory;
-		throwException(factory.createScalar(id),
-					   factory.createScalar(msg));
+		matlab::data::StringArray idArray = factory.createScalar(id);
+		matlab::data::StringArray msgArray = factory.createScalar(msg);
+		throwException(idArray, msgArray);
 	}
 
 	// Buffer management
@@ -115,6 +143,22 @@ private:
 			throwMatlabError("MATLAB:error:config", "Invalid configuration type");
 		}
 		return result;
+	}
+
+	// Update data handling
+	matlab::data::TypedArray<uint8_t> readBuffer(size_t bytes)
+	{
+		std::vector<uint8_t> buffer(bytes);
+		int received = 0;
+
+		if (!receive_data(device.get(), buffer.data(),
+						  static_cast<int>(bytes), &received))
+		{
+			throwMatlabError("MATLAB:error:read", "Read operation failed");
+		}
+
+		return factory.createArray<uint8_t>({1, static_cast<size_t>(received)},
+											buffer.begin(), buffer.begin() + received);
 	}
 
 public:

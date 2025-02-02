@@ -1,5 +1,7 @@
 #include "serial_comm.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 bool discover_devices(usb_device_info *devices, int *count)
 {
@@ -223,7 +225,7 @@ void init_device_config(usb_device_info *device)
 
 device_context_t *device_init(void)
 {
-	device_context_t *ctx = calloc(1, sizeof(device_context_t));
+	device_context_t *ctx = (device_context_t *)calloc(1, sizeof(device_context_t));
 	if (ctx)
 	{
 		ctx->usb_config.timeout_ms = 1000;
@@ -233,9 +235,12 @@ device_context_t *device_init(void)
 	return ctx;
 }
 
-bool device_configure(device_context_t *ctx, const serial_config_t *config, uint32_t flags)
+bool device_configure_context(device_context_t *ctx, const serial_config_t *config, uint32_t flags)
 {
-	HANDLE_USB_ERROR(ctx, ctx && config, SERIAL_ERROR_INVALID_CONFIG, "Invalid parameters");
+	if (!ctx || !config)
+	{
+		return false;
+	}
 
 	ctx->usb_config = *config;
 	ctx->flags = flags;
@@ -246,4 +251,16 @@ bool device_configure(device_context_t *ctx, const serial_config_t *config, uint
 			   config->timeout_ms, config->buffer_size);
 	}
 	return true;
+}
+
+void device_free(device_context_t *ctx)
+{
+	if (ctx)
+	{
+		if (ctx->user_context)
+		{
+			free(ctx->user_context);
+		}
+		free(ctx);
+	}
 }

@@ -1,13 +1,24 @@
 classdef SerialDevice < handle % was serialDevice
 	properties (Access = private)
-		IsOpen = false
-		Config = struct('timeout_ms', 1000, ...
-			'buffer_size', 4096, ...
+		% Use consistent naming
+		IsOpen (1,1) logical = false
+		Config struct = struct(...
+			'timeout_ms', uint32(1000), ...
+			'buffer_size', uint32(4096), ...
 			'auto_reconnect', true)
-		% Add connection state tracking
-		LastError = struct('code', 0, 'message', '')
-		RetryCount = 0
-		MaxRetries = 3
+		LastError struct = struct(...
+			'code', int32(0), ...
+			'message', '')
+		RetryCount (1,1) uint32 = 0
+		MaxRetries (1,1) uint32 = 3
+	end
+
+	properties (Constant, Access = private)
+		% Add error identifiers
+		ErrorIds = struct(...
+			'NotOpen', 'SerialDevice:DeviceNotOpen', ...
+			'Timeout', 'SerialDevice:Timeout', ...
+			'Disconnected', 'SerialDevice:Disconnected')
 	end
 
 	methods
@@ -32,11 +43,15 @@ classdef SerialDevice < handle % was serialDevice
 		end
 
 		function write(obj, data)
-			validateattributes(data, {'uint8'}, {'vector'});
+			validateattributes(data, {'uint8'}, {'vector'}, 'write', 'data');
 			if ~obj.verifyConnection()
-				error('Device not open');
+				error(obj.ErrorIds.NotOpen, 'Device not open');
 			end
-			serial_mex('write', data);
+			try
+				serial_mex('write', data);
+			catch ME
+				obj.handleError(ME);
+			end
 		end
 
 		function data = read(obj, bytes)
@@ -118,4 +133,16 @@ classdef SerialDevice < handle % was serialDevice
 				end
 			end
 		end
+
+		function handleError(obj, ME)
+			switch ME.identifier
+				case 'MATLAB:error:device_disconnected'
+					error(obj.ErrorIds.Disconnected, 'Device disconnected');
+				case 'MATLAB:error:timeout'
+					error(obj.ErrorIds.Timeout, 'Operation timed out');
+				otherwise
+					rethrow(ME);
+			end
+		end
 	end
+end

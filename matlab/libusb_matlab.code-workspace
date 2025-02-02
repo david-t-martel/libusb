@@ -8,17 +8,23 @@
 		"files.associations": {
 			".fantomasignore": "ignore",
 			"*.rmd": "markdown",
-			"memory": "cpp"
+			"memory": "cpp",
+			"string": "cpp"
 		},
 		"C_Cpp.default.includePath": [
 			"${workspaceFolder}/**",
 			"${workspaceFolder}/include",
 			"${workspaceFolder}/libusb",
-			"${env:MATLAB_ROOT}/extern/include"
+			"${env:MATLABROOT}/extern/include",
+			"${workspaceFolder}/libuse/libusb",
+			"/usr/local/include/libusb-1.0"
 		],
 		"C_Cpp.default.defines": [
 			"MATLAB_MEX_FILE",
-			"LIBUSB_API_VERSION=0x01000107"
+			"LIBUSB_API_VERSION=0x01000107",
+			"_DEBUG",
+			"UNICODE",
+			"_UNICODE"
 		],
 		"C_Cpp.default.cStandard": "c11",
 		"C_Cpp.default.cppStandard": "c++17",
@@ -27,7 +33,13 @@
 			"${workspaceFolder}"
 		],
 		"C_Cpp.default.compilerPath": "${default}",
-		"C_Cpp.formatting.style": "Visual Studio",
+		"C_Cpp.default.compilerArgs": [
+			"-Wall",
+			"-Wextra",
+			"-Werror"
+		],
+		"C_Cpp.formatting.style": "file",
+		"C_Cpp.formatting.fallbackStyle": "Visual Studio",
 		"C_Cpp.errorSquiggles": "enabled",
 		"C_Cpp.intelliSenseEngine": "default"
 	}
